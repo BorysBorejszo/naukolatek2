@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sklep ICP</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Sklep ICP</h1>
+        <div class="products">
+            {% for product in products %}
+            <div class="product">
+                <img src="{{ url_for('static', filename='images/' + product.image) }}" alt="{{ product.name }}" class="product-image">
+                <h2>{{ product.name }}</h2>
+                <p>Cena: {{ product.price }} ICP</p>
+                <button onclick="buyProduct({{ product.id }})">Kup</button>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Modal do wyświetlania kodu QR -->
+    <div id="modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Zapłać, skanując poniższy kod QR</h2>
+            <img id="qr-code" src="" alt="QR Code">
+            <div id="payment-status" style="display: none;">
+                <h3>Pomyślnie zakupiono przedmiot!</h3>
+            </div>
+            <button onclick="closeModal()">Zamknij</button>
+        </div>
+    </div>
+
+    <script>
+        function buyProduct(productId) {
+            // Wyciemniamy tło i pokazujemy okienko modalne
+            document.getElementById('modal').style.display = 'block';
+            
+            // Żądanie AJAX do generowania kodu QR
+            $.ajax({
+                url: '/generate_qr',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ product_id: productId }),
+                success: function (response) {
+                    // Wyświetlenie wygenerowanego kodu QR
+                    $('#qr-code').attr('src', 'data:image/png;base64,' + response.qr_code);
+
+                    // Sprawdzenie statusu płatności
+                    checkPayment(productId);
+                }
+            });
+        }
+
+        function checkPayment(productId) {
+            // Co jakiś czas sprawdzamy status płatności
+            setTimeout(function() {
+                $.ajax({
+                    url: '/check_payment',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ product_id: productId }),
+                    success: function(response) {
+                        if (response.status === 'success') {
+                            $('#payment-status').show();
+                            $('#qr-code').hide();
+                        }
+                    }
+                });
+            }, 3000);
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+            $('#payment-status').hide();
+            $('#qr-code').show();
+        }
+    </script>
+</body>
+</html>

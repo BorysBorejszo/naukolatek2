@@ -1,0 +1,29 @@
+service : {
+  // Query the balance of an account.
+  icrc1_balance_of : (record { owner : principal }) -> (nat) query;
+
+  // Query the total supply of tokens.
+  icrc1_total_supply : () -> (nat) query;
+
+  // Transfer tokens from one account to another.
+  icrc1_transfer : (record {
+      from : principal;
+      to : principal;
+      fee : nat;
+      memo : vec nat8;
+      amount : nat;
+      created_at_time : opt record { timestamp_nanos : nat64 };
+  }) -> (variant {
+      ok : record { block_index : nat };
+      err : variant {
+          TxTooOld;
+          TxCreatedInFuture;
+          InsufficientFunds;
+          BadFee;
+          TxDuplicate;
+      }
+  });
+
+  // Retrieve token metadata as a list of key/value pairs.
+  icrc1_metadata : () -> (vec record { key : text; value : text }) query;
+}
