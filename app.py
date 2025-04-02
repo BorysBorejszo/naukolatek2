@@ -3,8 +3,7 @@ import qrcode
 from io import BytesIO
 import base64
 import time
-# import requests
-import json
+import paramiko
 
 app = Flask(__name__)
 
@@ -16,45 +15,67 @@ products = [
     {"id": 4, "name": "Etui Infotech", "price": 150, "image": "product_d.png"},
 ]
 
-# ICP address and token canister ID
 ICP_ADDRESS = "lf5mq-ygcgt-vrtka-sygwu-mlbw2-4u256-yxkfm-wik7i-2qo3d-3pqkx-lae"
-TOKEN_CANISTER_ID = "ryjl3-tyaaa-aaaaa-aaaba-cai"  # Replace with actual canister ID
+TOKEN_CANISTER_ID = "tbsjh-jyaaa-aaaad-qg7nq-cai"
+PASSWORD = "Lol12345@"
 
 
-# Corrected HTTP request to query the balance
-def get_balance_via_http(wallet_address):
+# Function to get balance using SSH
+def get_balance():
     """
-    Query the balance of tokens for the given wallet address using an HTTP request to the IC API.
+    Uses paramiko to SSH into the VPS and run the script to get the balance.
+    Converts the balance from nats to coins (divide by 1000).
     """
+    host = "10.192.192.145"
+    user = "pawel"
+    password = "%!5K4zmjEYnnZuK&4#7*WsfVj"
+    command = "bash ~/komenda.sh"
+
     try:
-        url = f"https://ic0.app/api/v2/canister/{TOKEN_CANISTER_ID}/query"
-        headers = {
-            "Content-Type": "application/json"
-        }
-        # Create the correct payload structure
-        payload = {
-            "request_type": "query",
-            "canister_id": TOKEN_CANISTER_ID,
-            "method_name": "icrc1_balance_of",
-            "arg": {
-                "owner": {
-                    "principal": wallet_address
-                }
-            }
-        }
+        print("[INFO] Nawiązywanie połączenia SSH...")
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Convert the payload to JSON format
-        payload_json = json.dumps(payload)
+        ssh.connect(hostname=host, username=user, password=password)
+        print("[OK] Połączono z VPS.")
 
-        # Send the HTTP POST request
-        response = requests.post(url, data=payload_json, headers=headers)
-        response.raise_for_status()  # Check for HTTP errors
-        # Return the result from the response JSON
-        return response.json().get('result')
+        print(f"\n[INFO] Wykonuję skrypt: {command}")
 
+        stdin, stdout, stderr = ssh.exec_command(command)
+
+        output = stdout.read().decode().strip()
+        error = stderr.read().decode()
+
+        print("[INFO] Zamykam połączenie SSH...")
+        ssh.close()
+        print("[OK] Połączenie zamknięte.")
+
+        print("\n[WYNIK]:")
+        print(output)
+
+        if error:
+            print("\n[BŁĄD]:")
+            print(error)
+
+        # Clean up the output to extract the numeric balance (in nats)
+        balance_str = output.split(' ')[0].replace('_', '').replace('(', '').replace(')', '').replace(':', '').strip()
+
+        # Now, try to convert the balance string into an integer (in nats)
+        balance_in_nats = int(balance_str)
+
+        # Convert nats to coins by dividing by 1000
+        balance_in_coins = balance_in_nats / 1000.0
+
+        # Return the balance in coins
+        return balance_in_coins
+
+    except paramiko.AuthenticationException:
+        print("[BŁĄD] Nie udało się zalogować! Sprawdź dane logowania.")
+    except paramiko.SSHException as e:
+        print(f"[BŁĄD] Błąd SSH: {e}")
     except Exception as e:
-        print(f"Error fetching balance via HTTP: {e}")
-        return None
+        print(f"[BŁĄD] Nieznany błąd: {e}")
+    return None
 
 
 @app.route('/')
@@ -66,20 +87,8 @@ def index():
 def generate_qr():
     data = request.json
     product_id = data.get('product_id')
-    size = data.get('size', 150)  # Default size is 300x300 pixels
-
-    # Generate QR code data including the ICP address and product id as a query parameter.
     qr_data = f"{ICP_ADDRESS}"
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=size // 20,  # Adjusting box size based on requested size
-        border=4,
-    )
-    qr.add_data(qr_data)
-    qr.make(fit=True)
-    img = qr.make_image(fill="black", back_color="white")
-
+    img = qrcode.make(qr_data)
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
@@ -90,39 +99,44 @@ def generate_qr():
 def check_payment():
     data = request.json
     product_id = data.get('product_id')
-
-    # Find the product details by product id
     product = next((p for p in products if p['id'] == product_id), None)
     if not product:
         return jsonify({"status": "error", "message": "Produkt nie znaleziony"}), 404
 
     product_price = product['price']
-    wallet_address = ICP_ADDRESS
 
     try:
-        # Get the initial balance before payment
-        initial_balance = get_balance_via_http(wallet_address)
+        initial_balance = get_balance()
         if initial_balance is None:
             raise ValueError("Initial balance fetch failed")
     except Exception as e:
         return jsonify({"status": "error", "message": f"Error fetching initial balance: {e}"}), 500
 
-    # Wait for 5 seconds
-    time.sleep(5)
+    # Check for payment every 5 seconds up to 10 times
+    max_checks = 10
+    attempts = 0
+    new_balance = initial_balance
 
-    try:
-        # Get the new balance after waiting
-        new_balance = get_balance_via_http(wallet_address)
-        if new_balance is None:
-            raise ValueError("New balance fetch failed")
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"Error fetching new balance: {e}"}), 500
+    while attempts < max_checks:
+        time.sleep(5)
+        try:
+            new_balance = get_balance()
+            if new_balance is None:
+                raise ValueError("New balance fetch failed")
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Error fetching new balance: {e}"}), 500
 
-    # Check if the balance increased by at least the price of the product
-    if new_balance is not None and new_balance - 1 >= initial_balance + product_price:
-        return jsonify({"status": "success"})
-    else:
-        return jsonify({"status": "pending", "message": "Płatność nie zakończona lub niewystarczająca kwota."})
+        # Formatting balance as a more readable number
+        formatted_balance = f"{new_balance:,.2f} coins"
+
+        # Check if payment has been completed
+        if new_balance >= initial_balance + product_price:
+            return jsonify({"status": "success", "balance": formatted_balance})
+
+        attempts += 1
+
+    # If after the loop the payment hasn't been completed
+    return jsonify({"status": "pending", "message": "Płatność nie zakończona lub niewystarczająca kwota.", "balance": formatted_balance})
 
 
 if __name__ == '__main__':
