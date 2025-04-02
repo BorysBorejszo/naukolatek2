@@ -2,10 +2,14 @@ body {
     font-family: Arial, sans-serif;
     background-color: #f4f4f4;
     text-align: center;
+    margin: 0;
+    padding: 0;
 }
 
 .container {
     padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
 .products {
@@ -69,4 +73,22 @@ button:hover {
     right: 10px;
     font-size: 24px;
     cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+    .product {
+        width: 30%;
+    }
+}
+
+@media (max-width: 768px) {
+    .product {
+        width: 45%;
+    }
+}
+
+@media (max-width: 480px) {
+    .product {
+        width: 90%;
+    }
 }
