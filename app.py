@@ -87,12 +87,25 @@ def index():
 def generate_qr():
     data = request.json
     product_id = data.get('product_id')
+    size = data.get('size', 300)  # Default size is 300x300 pixels
+
+    # Generate QR code data including the ICP address and product id as a query parameter.
     qr_data = f"{ICP_ADDRESS}"
-    img = qrcode.make(qr_data)
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=size // 40,  # Adjusting box size based on requested size
+        border=4,
+    )
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    img = qr.make_image(fill="black", back_color="white")
+
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     qr_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
     return jsonify({"qr_code": qr_base64})
+
 
 
 @app.route('/check_payment', methods=['POST'])
